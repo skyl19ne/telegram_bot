@@ -8,12 +8,23 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from .config import load_settings
 from .database import MediaRepository, validate_group_id
 
 router = Router()
+
+MAIN_KEYBOARD = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Створити групу"), KeyboardButton(text="Додати медіа")],
+        [KeyboardButton(text="Змінити коментар"), KeyboardButton(text="Знайти групу")],
+        [KeyboardButton(text="Скасувати")],
+    ],
+    resize_keyboard=True,
+    is_persistent=True,
+    input_field_placeholder="Оберіть дію",
+)
 
 
 class CommentStates(StatesGroup):
@@ -26,6 +37,12 @@ class EditCommentStates(StatesGroup):
 
 class MediaStates(StatesGroup):
     waiting_media = State()
+
+
+class InputStates(StatesGroup):
+    waiting_add_group = State()
+    waiting_comment_group = State()
+    waiting_get_group = State()
 
 
 def _argument(command: CommandObject) -> str | None:
@@ -49,21 +66,56 @@ async def _send_group(bot: Bot, message: Message, repository: MediaRepository, g
             await bot.send_video(message.chat.id, item.file_id)
 
 
-@router.message(Command("start"))
-async def start(message: Message) -> None:
+async def send_start_message(message: Message) -> None:
     await message.answer(
         "Вітаю! Команди:\n"
         "/new — створити групу (потім введіть коментар або /skip)\n"
         "/add 60xxx — додати фото або відео\n"
         "/comment 60xxx — змінити коментар\n"
-        "/get 60xxx — знайти групу та показати всі медіа"
+        "/get 60xxx — знайти групу та показати всі медіа\n\n"
+        "Можна користуватися кнопками нижче. Для приватного використання "
+        "відкрийте цього бота в особистому чаті Telegram."
+        ,
+        reply_markup=MAIN_KEYBOARD,
     )
+
+
+@router.message(Command("start"))
+async def start(message: Message) -> None:
+    await send_start_message(message)
+
+
+@router.message(F.text == "Створити групу")
+async def new_group_button(message: Message, state: FSMContext, repository: MediaRepository) -> None:
+    await new_group(message, state, repository)
 
 
 @router.message(Command("new"))
 async def new_group(message: Message, state: FSMContext, repository: MediaRepository) -> None:
     await state.set_state(CommentStates.waiting_comment)
     await message.answer("Введіть коментар до нової групи або /skip:")
+
+
+@router.message(F.text == "Додати медіа")
+async def add_media_button(message: Message, state: FSMContext) -> None:
+    await state.set_state(InputStates.waiting_add_group)
+    await message.answer("Введіть ID групи, наприклад: 60123")
+
+
+@router.message(InputStates.waiting_add_group, F.text)
+async def add_media_button_group(
+    message: Message, state: FSMContext, repository: MediaRepository
+) -> None:
+    try:
+        group_id = validate_group_id(message.text)
+        if not repository.group_exists(group_id):
+            raise KeyError(group_id)
+    except (ValueError, KeyError):
+        await message.answer("Групу не знайдено. Введіть ID у форматі 60xxx.")
+        return
+    await state.update_data(group_id=group_id)
+    await state.set_state(MediaStates.waiting_media)
+    await message.answer("Надішліть фото або відео.")
 
 
 @router.message(CommentStates.waiting_comment, Command("skip"))
@@ -133,6 +185,53 @@ async def comment_start(message: Message, command: CommandObject, state: FSMCont
     await state.update_data(group_id=group_id)
     await state.set_state(EditCommentStates.waiting_comment)
     await message.answer("Введіть новий коментар:")
+
+
+@router.message(F.text == "Змінити коментар")
+async def comment_button(message: Message, state: FSMContext) -> None:
+    await state.set_state(InputStates.waiting_comment_group)
+    await message.answer("Введіть ID групи, наприклад: 60123")
+
+
+@router.message(F.text == "Знайти групу")
+async def get_group_button(message: Message, state: FSMContext) -> None:
+    await state.set_state(InputStates.waiting_get_group)
+    await message.answer("Введіть ID групи, наприклад: 60123")
+
+
+@router.message(F.text == "Скасувати")
+async def cancel_button(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Поточну дію скасовано.")
+
+
+@router.message(InputStates.waiting_comment_group, F.text)
+async def comment_button_group(
+    message: Message, state: FSMContext, repository: MediaRepository
+) -> None:
+    try:
+        group_id = validate_group_id(message.text)
+        if not repository.group_exists(group_id):
+            raise KeyError(group_id)
+    except (ValueError, KeyError):
+        await message.answer("Групу не знайдено. Введіть ID у форматі 60xxx.")
+        return
+    await state.update_data(group_id=group_id)
+    await state.set_state(EditCommentStates.waiting_comment)
+    await message.answer("Введіть новий коментар:")
+
+
+@router.message(InputStates.waiting_get_group, F.text)
+async def get_group_button_group(
+    message: Message, state: FSMContext, repository: MediaRepository, bot: Bot
+) -> None:
+    try:
+        group_id = validate_group_id(message.text)
+    except ValueError:
+        await message.answer("ID має бути у форматі 60xxx.")
+        return
+    await state.clear()
+    await _send_group(bot, message, repository, group_id)
 
 
 @router.message(EditCommentStates.waiting_comment, F.text)
