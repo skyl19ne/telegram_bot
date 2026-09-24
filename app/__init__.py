@@ -1,0 +1,1 @@
+"""Telegram media storage bot."""
