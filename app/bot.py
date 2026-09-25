@@ -8,7 +8,14 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+)
 
 from .config import load_settings
 from .database import MediaRepository, validate_group_id
@@ -24,6 +31,15 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True,
     is_persistent=True,
     input_field_placeholder="Оберіть дію",
+)
+
+CANCEL_CONFIRMATION_KEYBOARD = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Так, скасувати", callback_data="cancel_confirm"),
+            InlineKeyboardButton(text="Ні", callback_data="cancel_reject"),
+        ]
+    ]
 )
 
 
@@ -83,6 +99,41 @@ async def send_start_message(message: Message) -> None:
 @router.message(Command("start"))
 async def start(message: Message) -> None:
     await send_start_message(message)
+
+
+@router.message(Command("cancel"))
+async def cancel_command(message: Message, state: FSMContext) -> None:
+    await message.answer(
+        "Дійсно скасувати поточну дію?",
+        reply_markup=CANCEL_CONFIRMATION_KEYBOARD,
+    )
+
+
+@router.message(F.text == "Скасувати")
+async def cancel_button(message: Message, state: FSMContext) -> None:
+    await message.answer(
+        "Дійсно скасувати поточну дію?",
+        reply_markup=CANCEL_CONFIRMATION_KEYBOARD,
+    )
+
+
+@router.callback_query(F.data == "cancel_confirm")
+async def confirm_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.answer()
+    if callback.message:
+        await callback.message.edit_text("Дію скасовано.")
+        await callback.message.answer(
+            "Повернулися до головного меню.",
+            reply_markup=MAIN_KEYBOARD,
+        )
+
+
+@router.callback_query(F.data == "cancel_reject")
+async def reject_cancel(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message:
+        await callback.message.edit_text("Скасування не підтверджено.")
 
 
 @router.message(F.text == "Створити групу")
@@ -146,12 +197,6 @@ async def add_media_start(message: Message, command: CommandObject, state: FSMCo
     await message.answer("Надішліть фото або відео. Для скасування — /cancel.")
 
 
-@router.message(MediaStates.waiting_media, Command("cancel"))
-async def cancel_media(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("Додавання медіа скасовано.")
-
-
 @router.message(MediaStates.waiting_media, F.photo)
 async def save_photo(message: Message, state: FSMContext, repository: MediaRepository) -> None:
     data = await state.get_data()
@@ -197,12 +242,6 @@ async def comment_button(message: Message, state: FSMContext) -> None:
 async def get_group_button(message: Message, state: FSMContext) -> None:
     await state.set_state(InputStates.waiting_get_group)
     await message.answer("Введіть ID групи, наприклад: 60123")
-
-
-@router.message(F.text == "Скасувати")
-async def cancel_button(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("Поточну дію скасовано.")
 
 
 @router.message(InputStates.waiting_comment_group, F.text)
