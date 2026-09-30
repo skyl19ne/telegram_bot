@@ -139,6 +139,17 @@ class MediaRepository:
                 "UPDATE media SET group_id = ? WHERE group_id = ?",
                 (new_group_id, group_id),
             )
+            user_group_table = self.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user_groups'"
+            ).fetchone()
+            if user_group_table:
+                self.connection.execute(
+                    """INSERT OR IGNORE INTO user_groups(user_id, group_id, assigned_by, assigned_at)
+                       SELECT user_id, ?, assigned_by, assigned_at
+                       FROM user_groups WHERE group_id = ?""",
+                    (new_group_id, group_id),
+                )
+                self.connection.execute("DELETE FROM user_groups WHERE group_id = ?", (group_id,))
             self.connection.execute("DELETE FROM groups WHERE group_id = ?", (group_id,))
             self.connection.commit()
         except sqlite3.IntegrityError as exc:

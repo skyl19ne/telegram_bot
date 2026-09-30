@@ -7,6 +7,7 @@ from app.bot import (
     group_page_keyboard,
     group_page_text,
     keyboard_for,
+    role_keyboard,
     scenario_keyboard,
     user_actions_keyboard,
 )
@@ -75,6 +76,32 @@ def test_group_can_be_renamed_without_losing_media(tmp_path):
     repository.close()
 
 
+def test_group_rename_preserves_legacy_user_group_assignments(tmp_path):
+    repository = MediaRepository(tmp_path / "rename-assignments.sqlite3")
+    repository.add_user(10, ROLE_VIEWER, "Viewer")
+    repository.create_group("60044")
+    repository.connection.execute(
+        """CREATE TABLE user_groups (
+            user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            group_id TEXT NOT NULL REFERENCES groups(group_id) ON DELETE CASCADE,
+            assigned_by INTEGER,
+            assigned_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, group_id)
+        )"""
+    )
+    repository.connection.execute(
+        "INSERT INTO user_groups VALUES (10, '60044', 1, '2026-01-01T00:00:00+00:00')"
+    )
+    repository.connection.commit()
+
+    repository.rename_group("60044", "60045")
+    assignment = repository.connection.execute(
+        "SELECT group_id FROM user_groups WHERE user_id = 10"
+    ).fetchone()
+    assert assignment["group_id"] == "60045"
+    repository.close()
+
+
 def test_group_listing_is_sorted_and_group_deletion_removes_media(tmp_path):
     repository = MediaRepository(tmp_path / "list.sqlite3")
     for group_id in ("60020", "60003", "60011"):
@@ -140,6 +167,13 @@ def test_user_action_keyboard_has_no_group_management():
 def test_creation_type_choices_are_explicit_buttons():
     assert CREATE_SIZES == ("250", "500", "750")
     assert CREATE_LIGHTING == ("Full", "Light")
+    admin_choices = {
+        button.text
+        for row in role_keyboard(ROLE_ADMIN).keyboard
+        for button in row
+    }
+    assert "Адміністратор" in admin_choices
+    assert "Власник" not in admin_choices
 
 
 def test_osmos_list_is_sorted_and_paginated_by_ten(tmp_path):

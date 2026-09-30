@@ -784,7 +784,7 @@ async def user_role_start(callback: CallbackQuery, state: FSMContext, repository
     if actor_role not in (ROLE_OWNER, ROLE_ADMIN) or target_role is None:
         await callback.answer("Користувача не знайдено", show_alert=True)
         return
-    if target_role == ROLE_OWNER or (actor_role == ROLE_ADMIN and target_role == ROLE_ADMIN):
+    if target_role == ROLE_OWNER:
         await callback.answer("Недостатньо прав", show_alert=True)
         return
     await state.clear()
