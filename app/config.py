@@ -10,6 +10,7 @@ load_dotenv()
 class Settings:
     bot_token: str
     database_path: str
+    owner_id: int | None = None
 
 
 def load_settings() -> Settings:
@@ -19,4 +20,5 @@ def load_settings() -> Settings:
     return Settings(
         bot_token=token,
         database_path=os.getenv("DATABASE_PATH", "media_bot.sqlite3"),
+        owner_id=int(os.getenv("OWNER_TELEGRAM_ID")) if os.getenv("OWNER_TELEGRAM_ID", "").strip() else None,
     )
